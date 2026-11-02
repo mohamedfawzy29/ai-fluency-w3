@@ -44,11 +44,29 @@ async def get_db() -> AsyncSession:
     raise NotImplementedError
 
 
+async def get_current_courier_id() -> UUID:
+    """Return the authenticated courier's id.
+
+    Fails closed: until real token validation is wired in, every request is rejected.
+    """
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 # --- Endpoint ---
 
 
 @router.get("/{id}/orders", response_model=PaginatedOrdersResponse, status_code=status.HTTP_200_OK, summary="Get courier orders for today",)
-async def get_courier_today_orders(id: UUID, page: int = Query(default=1, ge=1, description="Page number"), db: AsyncSession = Depends(get_db),):
+async def get_courier_today_orders(id: UUID, page: int = Query(default=1, ge=1, description="Page number"), db: AsyncSession = Depends(get_db), current_courier_id: UUID = Depends(get_current_courier_id),):
+    if id != current_courier_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view your own orders",
+        )
+    
     page_size = 20
     offset = (page - 1) * page_size
 

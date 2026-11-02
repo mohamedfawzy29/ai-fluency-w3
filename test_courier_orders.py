@@ -57,6 +57,21 @@ async def client(session_factory):
         yield c
 
 @pytest_asyncio.fixture
+async def authed_client(session_factory, courier_id):
+    """Same app, but the caller is authenticated as `courier_id`."""
+    app = FastAPI()
+    app.include_router(co.router)
+
+    async def override_get_db():
+        async with session_factory() as s:
+            yield s
+
+    app.dependency_overrides[co.get_db] = override_get_db
+    app.dependency_overrides[co.get_current_courier_id] = lambda: courier_id
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        yield c
+
+@pytest_asyncio.fixture
 async def bare_client(monkeypatch):
     monkeypatch.delattr(co, "Order", raising=False)   # الكود الأصلي من غير Order
     app = FastAPI()
@@ -79,9 +94,14 @@ async def test_D_endpoint_works_without_defining_Order(bare_client):
     assert resp.status_code == 200
 
 @pytest.mark.asyncio
-async def test_baseline_happy_path(client, courier_id):
-    resp = await client.get(f"/couriers/{courier_id}/orders")
+async def test_baseline_happy_path(authed_client, courier_id):
+    resp = await authed_client.get(f"/couriers/{courier_id}/orders")
     assert resp.status_code == 200
     body = resp.json()
     assert body["total"] == 1
     assert body["items"][0]["customer_name"] == "mohammed Fawzy"
+
+@pytest.mark.asyncio
+async def test_F_courier_cannot_read_other_couriers_orders(authed_client):
+    resp = await authed_client.get(f"/couriers/{uuid.uuid4()}/orders")
+    assert resp.status_code == 403
